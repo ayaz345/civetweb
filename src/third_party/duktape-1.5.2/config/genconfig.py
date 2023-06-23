@@ -186,7 +186,9 @@ class Snippet:
 	def __init__(self, lines, provides=None, requires=None, autoscan_requires=True, autoscan_provides=True):
 		self.lines = []
 		if not isinstance(lines, list):
-			raise Exception('Snippet constructor must be a list (not e.g. a string): %s' % repr(lines))
+			raise Exception(
+				f'Snippet constructor must be a list (not e.g. a string): {repr(lines)}'
+			)
 		for line in lines:
 			if isinstance(line, str):
 				self.lines.append(line)
@@ -220,7 +222,7 @@ class Snippet:
 			if autoscan_provides:
 				m = re_line_provides.match(line)
 				if m is not None and '/* redefine */' not in line and \
-					len(m.group(1)) > 0 and m.group(1)[-1] != '_':
+						len(m.group(1)) > 0 and m.group(1)[-1] != '_':
 					# Don't allow e.g. DUK_USE_ which results from matching DUK_USE_xxx
 					#print('PROVIDES: %r' % m.group(1))
 					self.provides[m.group(1)] = True
@@ -236,14 +238,11 @@ class Snippet:
 					elif m[:7] == 'DUK_USE':
 						# DUK_USE_xxx are internal and they should not be 'requirements'
 						pass
-					elif self.provides.has_key(m):
-						# Snippet provides it's own require; omit
-						pass
-					else:
+					elif not self.provides.has_key(m):
 						#print('REQUIRES: %r' % m)
 						self.requires[m] = True
 
-	def fromFile(cls, filename):
+	def fromFile(self, filename):
 		lines = []
 		with open(filename, 'rb') as f:
 			for line in f:
@@ -252,7 +251,9 @@ class Snippet:
 				if line[:8] == '#snippet':
 					m = re.match(r'#snippet\s+"(.*?)"', line)
 					# XXX: better plumbing for lookup path
-					sub_fn = os.path.normpath(os.path.join(filename, '..', '..', 'header-snippets', m.group(1)))
+					sub_fn = os.path.normpath(
+						os.path.join(filename, '..', '..', 'header-snippets', m[1])
+					)
 					#print('#snippet ' + sub_fn)
 					sn = Snippet.fromFile(sub_fn)
 					lines += sn.lines
@@ -261,7 +262,7 @@ class Snippet:
 		return Snippet(lines, autoscan_requires=True, autoscan_provides=True)
 	fromFile = classmethod(fromFile)
 
-	def merge(cls, snippets):
+	def merge(self, snippets):
 		ret = Snippet([], [], [])
 		for s in snippets:
 			ret.lines += s.lines
@@ -301,8 +302,7 @@ class FileBuilder:
 		tmp = []
 		if doubled:
 			tmp.append(char * len(title))
-		tmp.append(title)
-		tmp.append(char * len(title))
+		tmp.extend((title, char * len(title)))
 		self.vals.append(Snippet(tmp))
 
 	def snippet_relative(self, fn):
@@ -317,16 +317,16 @@ class FileBuilder:
 
 	def cpp_error(self, msg):
 		# XXX: assume no newlines etc
-		self.vals.append(Snippet([ '#error %s' % msg ]))
+		self.vals.append(Snippet([f'#error {msg}']))
 
 	def cpp_warning(self, msg):
 		# XXX: assume no newlines etc
 		# XXX: support compiler specific warning mechanisms
 		if self.use_cpp_warning:
 			# C preprocessor '#warning' is often supported
-			self.vals.append(Snippet([ '#warning %s' % msg ]))
+			self.vals.append(Snippet([f'#warning {msg}']))
 		else:
-			self.vals.append(Snippet([ '/* WARNING: %s */' % msg ]))
+			self.vals.append(Snippet([f'/* WARNING: {msg} */']))
 
 	def cpp_warning_or_error(self, msg, is_error=True):
 		if is_error:
@@ -335,15 +335,10 @@ class FileBuilder:
 			self.cpp_warning(msg)
 
 	def chdr_comment_line(self, msg):
-		self.vals.append(Snippet([ '/* %s */' % msg ]))
+		self.vals.append(Snippet([f'/* {msg} */']))
 
 	def chdr_block_heading(self, msg):
-		lines = []
-		lines.append('')
-		lines.append('/*')
-		lines.append(' *  ' + msg)
-		lines.append(' */')
-		lines.append('')
+		lines = ['', '/*', f' *  {msg}', ' */', '']
 		self.vals.append(Snippet(lines))
 
 	def join(self):
@@ -351,8 +346,7 @@ class FileBuilder:
 		for line in self.vals:
 			if not isinstance(line, object):
 				raise Exception('self.vals must be all snippets')
-			for x in line.lines:  # x is a Snippet
-				tmp.append(x)
+			tmp.extend(iter(line.lines))
 		return '\n'.join(tmp)
 
 	def fill_dependencies_for_snippets(self, idx_deps):
@@ -465,10 +459,7 @@ def fill_dependencies_for_snippets(snippets, idx_deps):
 def serialize_snippet_list(snippets):
 	ret = []
 
-	emitted_provides = {}
-	for k in assumed_provides.keys():
-		emitted_provides[k] = True
-
+	emitted_provides = {k: True for k in assumed_provides.keys()}
 	for sn in snippets:
 		ret += sn.lines
 		for k in sn.provides.keys():
@@ -486,9 +477,7 @@ def remove_duplicate_newlines(x):
 	empty = False
 	for line in x.split('\n'):
 		if line == '':
-			if empty:
-				pass
-			else:
+			if not empty:
 				ret.append(line)
 			empty = True
 		else:
@@ -499,8 +488,6 @@ def remove_duplicate_newlines(x):
 def scan_use_defs(dirname):
 	global use_defs, use_defs_list
 	use_defs = {}
-	use_defs_list = []
-
 	for fn in os.listdir(dirname):
 		root, ext = os.path.splitext(fn)
 		if not root.startswith('DUK_USE_') or ext != '.yaml':
@@ -510,28 +497,25 @@ def scan_use_defs(dirname):
 			if doc.get('example', False):
 				continue
 			if doc.get('unimplemented', False):
-				print('WARNING: unimplemented: %s' % fn)
+				print(f'WARNING: unimplemented: {fn}')
 				continue
 			dockeys = doc.keys()
 			for k in dockeys:
-				if not k in allowed_use_meta_keys:
-					print('WARNING: unknown key %s in metadata file %s' % (k, fn))
+				if k not in allowed_use_meta_keys:
+					print(f'WARNING: unknown key {k} in metadata file {fn}')
 			for k in required_use_meta_keys:
-				if not k in dockeys:
-					print('WARNING: missing key %s in metadata file %s' % (k, fn))
+				if k not in dockeys:
+					print(f'WARNING: missing key {k} in metadata file {fn}')
 
 			use_defs[doc['define']] = doc
 
 	keys = use_defs.keys()
 	keys.sort()
-	for k in keys:
-		use_defs_list.append(use_defs[k])
+	use_defs_list = [use_defs[k] for k in keys]
 
 def scan_opt_defs(dirname):
 	global opt_defs, opt_defs_list
 	opt_defs = {}
-	opt_defs_list = []
-
 	for fn in os.listdir(dirname):
 		root, ext = os.path.splitext(fn)
 		if not root.startswith('DUK_OPT_') or ext != '.yaml':
@@ -541,22 +525,21 @@ def scan_opt_defs(dirname):
 			if doc.get('example', False):
 				continue
 			if doc.get('unimplemented', False):
-				print('WARNING: unimplemented: %s' % fn)
+				print(f'WARNING: unimplemented: {fn}')
 				continue
 			dockeys = doc.keys()
 			for k in dockeys:
-				if not k in allowed_opt_meta_keys:
-					print('WARNING: unknown key %s in metadata file %s' % (k, fn))
+				if k not in allowed_opt_meta_keys:
+					print(f'WARNING: unknown key {k} in metadata file {fn}')
 			for k in required_opt_meta_keys:
-				if not k in dockeys:
-					print('WARNING: missing key %s in metadata file %s' % (k, fn))
+				if k not in dockeys:
+					print(f'WARNING: missing key {k} in metadata file {fn}')
 
 			opt_defs[doc['define']] = doc
 
 	keys = opt_defs.keys()
 	keys.sort()
-	for k in keys:
-		opt_defs_list.append(opt_defs[k])
+	opt_defs_list = [opt_defs[k] for k in keys]
 
 def scan_use_tags():
 	global use_tags, use_tags_list
@@ -577,13 +560,11 @@ def scan_tags_meta(filename):
 
 def scan_helper_snippets(dirname):  # DUK_F_xxx snippets
 	global helper_snippets
-	helper_snippets = []
-
-	for fn in os.listdir(dirname):
-		if (fn[0:6] != 'DUK_F_'):
-			continue
-		#print('Autoscanning snippet: %s' % fn)
-		helper_snippets.append(Snippet.fromFile(os.path.join(dirname, fn)))
+	helper_snippets = [
+		Snippet.fromFile(os.path.join(dirname, fn))
+		for fn in os.listdir(dirname)
+		if fn[:6] == 'DUK_F_'
+	]
 
 def get_opt_defs(removed=True, deprecated=True, unused=True):
 	ret = []
@@ -616,7 +597,7 @@ def validate_platform_file(filename):
 
 	for req in platform_required_provides:
 		if req not in sn.provides:
-			raise Exception('Platform %s is missing %s' % (filename, req))
+			raise Exception(f'Platform {filename} is missing {req}')
 
 	# DUK_SETJMP, DUK_LONGJMP, DUK_JMPBUF_TYPE are optional, fill-in
 	# provides if none defined.
@@ -626,7 +607,7 @@ def validate_architecture_file(filename):
 
 	for req in architecture_required_provides:
 		if req not in sn.provides:
-			raise Exception('Architecture %s is missing %s' % (filename, req))
+			raise Exception(f'Architecture {filename} is missing {req}')
 
 	# Byte order and alignment defines are allowed to be missing,
 	# a fill-in will handle them.  This is necessary because for
@@ -642,21 +623,15 @@ def validate_compiler_file(filename):
 
 	for req in compiler_required_provides:
 		if req not in sn.provides:
-			raise Exception('Compiler %s is missing %s' % (filename, req))
+			raise Exception(f'Compiler {filename} is missing {req}')
 
 def get_tag_title(tag):
 	meta = tags_meta.get(tag, None)
-	if meta is None:
-		return tag
-	else:
-		return meta.get('title', tag)
+	return tag if meta is None else meta.get('title', tag)
 
 def get_tag_description(tag):
 	meta = tags_meta.get(tag, None)
-	if meta is None:
-		return None
-	else:
-		return meta.get('description', None)
+	return None if meta is None else meta.get('description', None)
 
 def get_tag_list_with_preferred_order(preferred):
 	tags = []
@@ -675,12 +650,7 @@ def get_tag_list_with_preferred_order(preferred):
 	return tags
 
 def rst_format(text):
-	# XXX: placeholder, need to decide on markup conventions for YAML files
-	ret = []
-	for para in text.split('\n'):
-		if para == '':
-			continue
-		ret.append(para)
+	ret = [para for para in text.split('\n') if para != '']
 	return '\n\n'.join(ret)
 
 def cint_encode(x):
@@ -719,7 +689,7 @@ def cstr_encode(x):
 	res += '"'
 
 	if has_terms:
-		res = '(' + res + ')'
+		res = f'({res})'
 
 	return res
 
@@ -800,14 +770,12 @@ def get_forced_options(opts):
 	for val in opts.force_options_yaml:
 		doc = yaml.load(StringIO(val))
 		for k in doc.keys():
-			if use_defs.has_key(k):
-				pass  # key is known
-			else:
-				print('WARNING: option override key %s not defined in metadata, ignoring' % k)
+			if not use_defs.has_key(k):
+				print(f'WARNING: option override key {k} not defined in metadata, ignoring')
 			forced_opts[k] = doc[k]  # shallow copy
 
 	if len(forced_opts.keys()) > 0:
-		print('Overrides: %s' % json.dumps(forced_opts))
+		print(f'Overrides: {json.dumps(forced_opts)}')
 
 	return forced_opts
 
@@ -819,27 +787,23 @@ def emit_default_from_config_meta(ret, doc, forced_opts, undef_done):
 
 	# NOTE: careful with Python equality, e.g. "0 == False" is true.
 	if isinstance(defval, bool) and defval == True:
-		ret.line('#define ' + defname)
+		ret.line(f'#define {defname}')
 	elif isinstance(defval, bool) and defval == False:
 		if not undef_done:
-			ret.line('#undef ' + defname)
-		else:
-			# Default value is false, and caller has emitted
-			# an unconditional #undef, so don't emit a duplicate
-			pass
+			ret.line(f'#undef {defname}')
 	elif isinstance(defval, (int, long)):
 		# integer value
-		ret.line('#define ' + defname + ' ' + cint_encode(defval))
+		ret.line(f'#define {defname} {cint_encode(defval)}')
 	elif isinstance(defval, (str, unicode)):
 		# verbatim value
-		ret.line('#define ' + defname + ' ' + defval)
+		ret.line(f'#define {defname} {defval}')
 	elif isinstance(defval, dict):
 		if defval.has_key('verbatim'):
 			# verbatim text for the entire line
 			ret.line(defval['verbatim'])
 		elif defval.has_key('string'):
 			# C string value
-			ret.line('#define ' + defname + ' ' + cstr_encode(defval['string']))
+			ret.line(f'#define {defname} ' + cstr_encode(defval['string']))
 		else:
 			raise Exception('unsupported value for option %s: %r' % (defname, defval))
 	else:
@@ -862,15 +826,21 @@ def add_legacy_feature_option_checks(opts, ret):
 	defs.sort()
 
 	for optname in defs:
-		suggested = []
-		for doc in get_use_defs():
-			if optname in doc.get('related_feature_defines', []):
-				suggested.append(doc['define'])
-		ret.line('#if defined(%s)' % optname)
-		if len(suggested) > 0:
-			ret.cpp_warning_or_error('unsupported legacy feature option %s used, consider options: %s' % (optname, ', '.join(suggested)), opts.sanity_strict)
+		suggested = [
+			doc['define']
+			for doc in get_use_defs()
+			if optname in doc.get('related_feature_defines', [])
+		]
+		ret.line(f'#if defined({optname})')
+		if suggested:
+			ret.cpp_warning_or_error(
+				f"unsupported legacy feature option {optname} used, consider options: {', '.join(suggested)}",
+				opts.sanity_strict,
+			)
 		else:
-			ret.cpp_warning_or_error('unsupported legacy feature option %s used' % optname, opts.sanity_strict)
+			ret.cpp_warning_or_error(
+				f'unsupported legacy feature option {optname} used', opts.sanity_strict
+			)
 		ret.line('#endif')
 
 	ret.empty()
@@ -894,22 +864,34 @@ def add_config_option_checks(opts, ret):
 		# XXX: more checks
 
 		if doc.get('removed', None) is not None:
-			ret.line('#if defined(%s)' % dname)
-			ret.cpp_warning_or_error('unsupported config option used (option has been removed): %s' % dname, opts.sanity_strict)
+			ret.line(f'#if defined({dname})')
+			ret.cpp_warning_or_error(
+				f'unsupported config option used (option has been removed): {dname}',
+				opts.sanity_strict,
+			)
 			ret.line('#endif')
 		elif doc.get('deprecated', None) is not None:
-			ret.line('#if defined(%s)' % dname)
-			ret.cpp_warning_or_error('unsupported config option used (option has been deprecated): %s' % dname, opts.sanity_strict)
+			ret.line(f'#if defined({dname})')
+			ret.cpp_warning_or_error(
+				f'unsupported config option used (option has been deprecated): {dname}',
+				opts.sanity_strict,
+			)
 			ret.line('#endif')
 
 		for req in doc.get('requires', []):
-			ret.line('#if defined(%s) && !defined(%s)' % (dname, req))
-			ret.cpp_warning_or_error('config option %s requires option %s (which is missing)' % (dname, req), opts.sanity_strict)
+			ret.line(f'#if defined({dname}) && !defined({req})')
+			ret.cpp_warning_or_error(
+				f'config option {dname} requires option {req} (which is missing)',
+				opts.sanity_strict,
+			)
 			ret.line('#endif')
 
 		for req in doc.get('conflicts', []):
-			ret.line('#if defined(%s) && defined(%s)' % (dname, req))
-			ret.cpp_warning_or_error('config option %s conflicts with option %s (which is also defined)' % (dname, req), opts.sanity_strict)
+			ret.line(f'#if defined({dname}) && defined({req})')
+			ret.cpp_warning_or_error(
+				f'config option {dname} conflicts with option {req} (which is also defined)',
+				opts.sanity_strict,
+			)
 			ret.line('#endif')
 
 	ret.empty()
@@ -948,41 +930,37 @@ def add_feature_option_handling(opts, ret, forced_opts, already_provided_keys):
 		elif doc.has_key('feature_disables'):
 			feature_define = doc['feature_disables']
 			inverted = True
-		else:
-			pass
-
 		if feature_define is not None:
-			feature_no_define = 'DUK_OPT_NO_' + feature_define[8:]
-			ret.line('#if defined(%s)' % feature_define)
+			feature_no_define = f'DUK_OPT_NO_{feature_define[8:]}'
+			ret.line(f'#if defined({feature_define})')
 			if inverted:
-				ret.line('#undef %s' % config_define)
+				ret.line(f'#undef {config_define}')
 			else:
-				ret.line('#define %s' % config_define)
-			ret.line('#elif defined(%s)' % feature_no_define)
+				ret.line(f'#define {config_define}')
+			ret.line(f'#elif defined({feature_no_define})')
 			if inverted:
-				ret.line('#define %s' % config_define)
+				ret.line(f'#define {config_define}')
 			else:
-				ret.line('#undef %s' % config_define)
+				ret.line(f'#undef {config_define}')
 			ret.line('#else')
-			undef_done = False
-
 			# For some options like DUK_OPT_PACKED_TVAL the default comes
 			# from platform definition.
 			if doc.get('feature_no_default', False):
-				print('Skip default for option %s' % config_define)
+				print(f'Skip default for option {config_define}')
 				ret.line('/* Already provided above */')
 			elif already_provided_keys.has_key(config_define):
 				# This is a fallback in case config option metadata is wrong.
-				print('Skip default for option %s (already provided but not flagged in metadata!)' % config_define)
+				print(
+					f'Skip default for option {config_define} (already provided but not flagged in metadata!)'
+				)
 				ret.line('/* Already provided above */')
 			else:
+				undef_done = False
+
 				emit_default_from_config_meta(ret, doc, forced_opts, undef_done)
 			ret.line('#endif')
 		elif doc.has_key('feature_snippet'):
 			ret.lines(doc['feature_snippet'])
-		else:
-			pass
-
 		ret.empty()
 
 	ret.empty()
@@ -999,7 +977,7 @@ def add_duk_active_defines_macro(ret):
 	for doc in get_use_defs():
 		defname = doc['define']
 
-		ret.line('#if defined(%s)' % defname)
+		ret.line(f'#if defined({defname})')
 		ret.line('#define DUK_ACTIVE_DEF%d " %s"' % (idx, defname))
 		ret.line('#else')
 		ret.line('#define DUK_ACTIVE_DEF%d ""' % idx)
@@ -1007,10 +985,7 @@ def add_duk_active_defines_macro(ret):
 
 		idx += 1
 
-	tmp = []
-	for i in xrange(idx):
-		tmp.append('DUK_ACTIVE_DEF%d' % i)
-
+	tmp = ['DUK_ACTIVE_DEF%d' % i for i in xrange(idx)]
 	ret.line('#define DUK_ACTIVE_DEFINES ("Active: ["' + ' '.join(tmp) + ' " ]")')
 
 #
